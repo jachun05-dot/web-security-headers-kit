@@ -18,7 +18,14 @@ export function checkHeaders(raw) {
     if (!dirs['object-src'] && !(dirs['default-src'] || []).includes("'none'")) add('warn', 'Content-Security-Policy', "Add object-src 'none' to block plugins.");
     if (!dirs['base-uri']) add('warn', 'Content-Security-Policy', "Add base-uri 'self' so injected <base> tags can't redirect relative URLs.");
     if (!dirs['frame-ancestors'] && !h['x-frame-options']) add('fail', 'Content-Security-Policy', 'No frame-ancestors (or X-Frame-Options): pages can be framed for clickjacking.');
+    if (!dirs['default-src']) add('warn', 'Content-Security-Policy', "No default-src, so anything a directive doesn't mention is allowed. Start from default-src 'self'.");
+    if (scripts.includes('data:')) add('warn', 'Content-Security-Policy', 'script-src allows data: URLs, which can carry injected code.');
+    if ((dirs['default-src'] || []).includes('*')) add('warn', 'Content-Security-Policy', 'default-src allows any host.');
+    if (dirs['require-trusted-types-for']) add('info', 'Content-Security-Policy', 'Trusted Types are on: DOM XSS sinks are locked down.');
+    if (scripts.includes("'strict-dynamic'")) add('info', 'Content-Security-Policy', "Uses 'strict-dynamic' with nonces or hashes (the strongest CSP style).");
   }
+  const acao = h['access-control-allow-origin'];
+  if (acao === '*' && /true/i.test(h['access-control-allow-credentials'] || '')) add('fail', 'Access-Control-Allow-Origin', 'Wildcard origin with credentials: any site could read logged-in responses.');
 
   const hsts = h['strict-transport-security'];
   if (!hsts) add('fail', 'Strict-Transport-Security', 'Missing. Browsers may still try plain HTTP first.');
@@ -34,8 +41,11 @@ export function checkHeaders(raw) {
   if (h['x-powered-by']) add('warn', 'X-Powered-By', `Reveals "${h['x-powered-by']}". Remove it.`);
   if (/\d/.test(h.server || '')) add('info', 'Server', `Reveals a version: "${h.server}".`);
 
+  return { grade: gradeOf(findings), findings };
+}
+
+export function gradeOf(findings) {
   const fails = findings.filter((f) => f.level === 'fail').length;
   const warns = findings.filter((f) => f.level === 'warn').length;
-  const grade = fails >= 3 ? 'F' : fails === 2 ? 'D' : fails === 1 ? 'C' : warns >= 3 ? 'B' : warns >= 1 ? 'A' : 'A+';
-  return { grade, findings };
+  return fails >= 3 ? 'F' : fails === 2 ? 'D' : fails === 1 ? 'C' : warns >= 3 ? 'B' : warns >= 1 ? 'A' : 'A+';
 }

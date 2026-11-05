@@ -1,18 +1,48 @@
 {
   "name": "web-security-headers-kit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Drop-in security headers (CSP, HSTS and more) for Cloudflare, Netlify, Vercel, Nginx, Apache and Express, with a CSP builder, inline-script hasher and header checker.",
   "type": "module",
-  "bin": { "security-headers": "bin/cli.js" },
-  "exports": {
-    ".": "./src/index.js"
+  "bin": {
+    "security-headers": "bin/cli.js"
   },
-  "files": ["bin", "src", "examples", "README.md", "README.ko.md", "LICENSE"],
+  "exports": {
+    ".": "./src/index.js",
+    "./express": "./src/express.js",
+    "./worker": "./src/worker.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "README.md",
+    "README.ko.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "test": "node --test test/*.test.js",
     "examples": "node scripts/examples.js"
   },
-  "engines": { "node": ">=18" },
-  "keywords": ["security", "headers", "csp", "content-security-policy", "hsts", "cloudflare", "netlify", "nginx", "express"],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "security",
+    "headers",
+    "csp",
+    "content-security-policy",
+    "hsts",
+    "cloudflare",
+    "netlify",
+    "nginx",
+    "express",
+    "nonce",
+    "strict-dynamic",
+    "trusted-types",
+    "sri",
+    "security.txt"
+  ],
   "license": "MIT"
 }

@@ -5,9 +5,12 @@
 - **Cloudflare(Pages, Workers), Netlify, Vercel, Nginx, Apache, Express**용 설정 파일을 바로 만들어 줘요.
 - 자주 쓰는 외부 서비스(구글 애널리틱스, 애드센스, 구글 폰트, 유튜브, 스트라이프 등)에 맞춰 **콘텐츠 보안 정책(CSP)**을 만들어 줘요.
 - 페이지 안의 인라인 `<script>`, `<style>`을 찾아서 **그 내용만 허용(해시)**해 줘요. 그래서 위험한 `'unsafe-inline'`을 쓰지 않아도 돼요.
-- 내 사이트 주소를 넣으면 **보안 등급을 매겨 주는 점검 도구**도 들어 있어요.
+- 요청마다 새로 만드는 **nonce + `'strict-dynamic'`**, **Trusted Types** 같은 현재 가장 강한 CSP 방식을 지원해요. Express와 Cloudflare Worker용 도우미도 들어 있어요.
+- 막힌 항목을 브라우저가 알려 주는 **위반 보고(report)** 설정과 보고 정리 도구가 있어요.
+- 주소만 넣으면 **사이트 전체를 진단**해요: 헤더, HTTPS 리다이렉트, 쿠키, 혼합 콘텐츠, SRI 누락, 인라인 이벤트, CORS, security.txt.
+- **SRI(외부 파일 위변조 방지)**와 **security.txt** 생성기도 있어요.
 
-설치할 다른 패키지는 없어요. Node 18 이상에서 동작하고, MIT 라이선스예요.
+설치할 다른 패키지는 없어요. Node 20 이상에서 동작하고, MIT 라이선스예요.
 
 ## 막아 주는 것과 못 막는 것
 
@@ -53,6 +56,64 @@
 4. **배포한 뒤 브라우저 개발자 콘솔을 열고 사이트를 둘러보세요.** 보고만 하기 모드는 아무것도 막지 않고, 막혔을 항목을 콘솔에 경고로만 보여줘요. 빠진 것은 `--services`나 `--extra`로 추가하고 다시 만들어요.
 
 5. **경고가 없어지면 `--report-only`를 빼고 다시 배포한 뒤 `check`를 돌려 보세요.** A나 A+가 목표예요.
+
+## 보안 단계
+
+내 환경에서 쓸 수 있는 가장 높은 단계를 고르세요.
+
+| 단계 | 얻는 것 | 방법 |
+| --- | --- | --- |
+| 1. 고정 헤더 | 모든 보안 헤더, 내 도메인과 지정한 서비스만 허용하는 CSP | `build --format …` (어떤 호스팅이든) |
+| 2. 인라인 코드 해시 | `'unsafe-inline'` 없이, 내가 배포한 인라인 스크립트만 실행 | `build --hash-from ./dist` |
+| 3. nonce + `'strict-dynamic'` | 응답마다 새 비밀값. 허용된 서버에 심어진 스크립트도 실행 못 함 | Express 미들웨어나 Cloudflare Worker 도우미 |
+| 4. Trusted Types | `innerHTML` 같은 위험한 DOM 함수로 생기는 XSS까지 차단 | 코드가 준비되면 `trustedTypes: true` |
+
+### 3단계: Express에서 nonce 쓰기
+
+```js
+import { securityHeaders } from 'web-security-headers-kit/express';
+app.use(securityHeaders({ services: ['google-analytics'], strictDynamic: true }));
+// 템플릿에서: <script nonce="${res.locals.cspNonce}">…</script>
+```
+
+### 3단계: Cloudflare에서 nonce 쓰기 (정적 사이트도 가능)
+
+```js
+import { secureResponse } from 'web-security-headers-kit/worker';
+export default {
+  async fetch(request, env) {
+    return secureResponse(await env.ASSETS.fetch(request), { nonce: true, strictDynamic: true });
+  },
+};
+```
+
+Worker가 페이지를 보내면서 모든 `<script>`, `<style>` 태그에 nonce를 붙여 줘서, 정적 HTML은 고칠 필요가 없어요.
+
+### 4단계: Trusted Types
+
+`--trusted-types`를 켜면 `innerHTML` 같은 위험한 함수에 문자열을 그냥 넣는 것을 브라우저가 거부해요. 기존 코드는 대부분 조금씩 고쳐야 하니 반드시 `--report-only`로 먼저 확인하세요. 크롬 계열 브라우저에서 동작하고, 다른 브라우저는 무시해요.
+
+## 위반 보고 받기
+
+`--report-uri https://수집주소/csp`를 넣으면 브라우저가 막힌 항목마다 보고를 보내요. [`examples/csp-report-collector.js`](examples/csp-report-collector.js)는 보고를 받는 10줄짜리 Cloudflare Worker예요.
+
+## 사이트 전체 진단
+
+```bash
+node bin/cli.js check https://내-사이트.com          # 사람이 읽는 형식
+node bin/cli.js check https://내-사이트.com --json   # 자동화(CI)용, A등급 미만이면 실패
+```
+
+헤더 말고도 http→https 영구 리다이렉트, 쿠키의 `Secure`·`HttpOnly`·`SameSite`, http로 불러오는 파일, 위변조 방지(SRI)가 없는 외부 스크립트, 인라인 `onclick=`, 위험한 CORS 설정, `security.txt` 유무를 봐요.
+
+## SRI와 security.txt
+
+```bash
+node bin/cli.js sri https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js
+node bin/cli.js securitytxt --contact mailto:security@내-사이트.com --lang ko,en > public/.well-known/security.txt
+```
+
+SRI는 CDN 파일 내용이 바뀌면 브라우저가 실행을 거부하게 해요. security.txt는 보안 문제를 어디로 알리면 되는지 알려 주는 파일이고, `Expires` 날짜 전에 갱신해야 해요.
 
 ## 출력 형식
 

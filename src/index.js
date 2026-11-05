@@ -1,5 +1,10 @@
-export { buildHeaders, PRESETS } from './policy.js';
+export { buildHeaders, createNonce, PRESETS } from './policy.js';
 export { FORMATS } from './formats.js';
 export { SERVICES } from './services.js';
 export { inlineHashes } from './hash.js';
-export { checkHeaders } from './check.js';
+export { checkHeaders, gradeOf } from './check.js';
+export { auditSite } from './audit.js';
+export { sriHash, sriForUrl } from './sri.js';
+export { parseCspReports } from './reports.js';
+export { buildSecurityTxt } from './securitytxt.js';
+export { securityHeaders } from './express.js';

@@ -5,9 +5,12 @@ Strong, ready-to-paste **HTTP security headers** for any website, with:
 - configs for **Cloudflare (Pages and Workers), Netlify, Vercel, Nginx, Apache and Express**
 - a **Content Security Policy builder** that knows what common services need (Google Analytics, AdSense, Google Fonts, YouTube, Stripe and more)
 - a **hasher** that finds your inline `<script>` and `<style>` blocks and allows exactly those, so you don't need `'unsafe-inline'`
-- a **checker** that grades any live URL
+- **per-request nonces with `'strict-dynamic'`** and **Trusted Types**, the strongest CSP setup in use today, with ready-made Express and Cloudflare Worker helpers
+- **violation reporting** (`report-uri`, `report-to`) and a report parser
+- a **site audit** that grades any live URL: headers, HTTPS redirect, cookies, mixed content, missing SRI, inline handlers, CORS and `security.txt`
+- **Subresource Integrity** and **`security.txt`** generators
 
-No dependencies. Node 18 or newer. MIT licensed.
+No dependencies. Node 20 or newer. MIT licensed.
 
 [한국어 설명서 (README.ko.md)](README.ko.md)
 
@@ -58,6 +61,64 @@ They **do not** fix bugs in your server code: SQL injection, broken login or acc
 
 5. **Remove `--report-only`, deploy again, and re-run `check`.** Aim for grade A or A+.
 
+## Security levels
+
+Pick the highest level your setup allows.
+
+| Level | What you get | How |
+| --- | --- | --- |
+| 1. Static headers | All headers; CSP limited to your own domain and listed services | `build --format …` (any host) |
+| 2. Hashed inline code | No `'unsafe-inline'`; only the exact inline scripts you shipped can run | `build --hash-from ./dist` |
+| 3. Nonce + `'strict-dynamic'` | A fresh secret per response; injected scripts can't run even on an allowed host | Express middleware or Cloudflare Worker helper (below) |
+| 4. Trusted Types | Blocks DOM-based XSS (`innerHTML` and friends) unless code goes through a policy you define | add `trustedTypes: true` once your code is ready |
+
+### Level 3: nonces with Express
+
+```js
+import { securityHeaders } from 'web-security-headers-kit/express';
+app.use(securityHeaders({ services: ['google-analytics'], strictDynamic: true }));
+// In your template: <script nonce="${res.locals.cspNonce}">…</script>
+```
+
+### Level 3: nonces on Cloudflare (static sites too)
+
+```js
+import { secureResponse } from 'web-security-headers-kit/worker';
+export default {
+  async fetch(request, env) {
+    return secureResponse(await env.ASSETS.fetch(request), { nonce: true, strictDynamic: true });
+  },
+};
+```
+
+The Worker stamps the nonce on every `<script>` and `<style>` tag as the page streams through, so static HTML needs no changes. Full examples: [`examples/express-nonce.js`](examples/express-nonce.js), [`examples/cloudflare-worker-nonce.js`](examples/cloudflare-worker-nonce.js).
+
+### Level 4: Trusted Types
+
+`--trusted-types` (or `trustedTypes: true`) makes the browser reject strings passed to dangerous DOM APIs such as `innerHTML`. Libraries like DOMPurify can create a policy for you; list allowed policy names with `--trusted-types dompurify,default`. Roll it out with `--report-only` first, because most existing code needs small changes. Supported in Chromium browsers; others ignore it safely.
+
+## Reports
+
+Add `--report-uri https://your-collector.example/csp` and browsers will send a JSON report for every blocked item, using both the older `report-uri` and the newer `report-to` mechanisms. [`examples/csp-report-collector.js`](examples/csp-report-collector.js) is a ten-line Cloudflare Worker that receives them; `parseCspReports()` turns either format into one shape and drops noise from browser extensions.
+
+## Audit a live site
+
+```bash
+node bin/cli.js check https://your-site.com          # human-readable
+node bin/cli.js check https://your-site.com --json   # for CI; exits 1 below grade A
+```
+
+Besides the headers it checks that `http://` redirects permanently to `https://`, that cookies have `Secure`, `HttpOnly` and `SameSite`, that nothing loads over plain HTTP, which external scripts lack integrity hashes, how many inline `onclick=` handlers would block a strict CSP, CORS wildcards with credentials, and whether `/.well-known/security.txt` exists.
+
+## Subresource Integrity and security.txt
+
+```bash
+node bin/cli.js sri https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js
+node bin/cli.js securitytxt --contact mailto:security@your-site.com --lang en,ko > public/.well-known/security.txt
+```
+
+SRI makes the browser refuse a CDN file if its contents ever change. `security.txt` (RFC 9116) tells researchers where to report problems; it needs renewing before its `Expires` date.
+
 ## Formats
 
 | `--format` | Where it goes |
@@ -86,6 +147,8 @@ Ready-made examples (with Google Fonts allowed) are in [`examples/`](examples).
 | `--report-uri <url>` | Endpoint that receives violation reports. |
 | `--hsts-preload` | Adds `preload` to HSTS. Read the warning below first. |
 | `--allow-framing` | Lets other sites put your pages in an iframe. |
+| `--strict-dynamic` | Trusts scripts loaded by your hashed scripts (Level 2 → close to Level 3 for static sites). |
+| `--trusted-types [names]` | Requires Trusted Types (Level 4). |
 
 ### Use it from code
 
